@@ -26,25 +26,44 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 async fn handle_connection(mut socket: TcpStream) -> Result<(), Box<dyn Error>> {
     // Create a buffer to store the request
-    let mut buffer = [0; 1204];
+    let mut buffer = vec![0u8; 8192]; // 8KB buffer
+    let mut headers = [httparse::EMPTY_HEADER; 64];
+    let mut request = httparse::Request::new(&mut headers);
 
     // Read bytes from the socket
     let n = socket.read(&mut buffer).await?;
+    if n==0 {
+        return Ok(()); 
+    }
 
-    // Convert the request bytes to a string
-    let request = String::from_utf8_lossy(&buffer[..n]);
-
-    //Print the incoming request
-    debug!("Received request: {}", request);
-
-    // Check if it's a GET request
-    let first_line = request.lines().next().unwrap_or("");
-    if first_line.starts_with("GET") {
-        handle_get_request(socket, first_line).await?;
-    } else {
-        // Respond with 405 Method Not Allowed
-        let response = "HTTP/1.1 405 Method Not Allowed\r\n\r\n";
-        socket.write_all(response.as_bytes()).await?;
+    // Parse the request
+    match request.parse(&buffer[..n]) {
+        Ok(httparse::Status::Complete(_size)) => {
+            // Successfully parsed the request
+            let method = request.method.unwrap_or("");
+            let path = request.path.unwrap_or("");
+            
+            debug!("Received {} request for {}", method, path);
+            
+            match method {
+                "GET" => handle_get_request(socket, path).await?,
+                _ => {
+                    // Respond with 405 Method Not Allowed
+                    let response = "HTTP/1.1 405 Method Not Allowed\r\n\r\n";
+                    socket.write_all(response.as_bytes()).await?;
+                }
+            }
+        },
+        Ok(httparse::Status::Partial) => {
+            // Incomplete request
+            let response = "HTTP/1.1 400 Bad Request\r\nContent-Length: 26\r\n\r\nIncomplete request received";
+            socket.write_all(response.as_bytes()).await?;
+        },
+        Err(_) => {
+            // Malformed request
+            let response = "HTTP/1.1 400 Bad Request\r\nContent-Length: 24\r\n\r\nMalformed HTTP request";
+            socket.write_all(response.as_bytes()).await?;
+        }
     }
     Ok(())
 }
