@@ -1,0 +1,9 @@
+[package]
+name = "async_http_server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1.44.1", features = ["full"] }
+log = "0.4.26"
+
