@@ -32,8 +32,8 @@ async fn handle_connection(mut socket: TcpStream) -> Result<(), Box<dyn Error>> 
 
     // Read bytes from the socket
     let n = socket.read(&mut buffer).await?;
-    if n==0 {
-        return Ok(()); 
+    if n == 0 {
+        return Ok(());
     }
 
     // Parse the request
@@ -42,9 +42,9 @@ async fn handle_connection(mut socket: TcpStream) -> Result<(), Box<dyn Error>> 
             // Successfully parsed the request
             let method = request.method.unwrap_or("");
             let path = request.path.unwrap_or("");
-            
+
             debug!("Received {} request for {}", method, path);
-            
+
             match method {
                 "GET" => handle_get_request(socket, path).await?,
                 _ => {
@@ -53,12 +53,12 @@ async fn handle_connection(mut socket: TcpStream) -> Result<(), Box<dyn Error>> 
                     socket.write_all(response.as_bytes()).await?;
                 }
             }
-        },
+        }
         Ok(httparse::Status::Partial) => {
             // Incomplete request
             let response = "HTTP/1.1 400 Bad Request\r\nContent-Length: 26\r\n\r\nIncomplete request received";
             socket.write_all(response.as_bytes()).await?;
-        },
+        }
         Err(_) => {
             // Malformed request
             let response = "HTTP/1.1 400 Bad Request\r\nContent-Length: 24\r\n\r\nMalformed HTTP request";
@@ -70,36 +70,67 @@ async fn handle_connection(mut socket: TcpStream) -> Result<(), Box<dyn Error>> 
 
 async fn handle_get_request(
     mut socket: TcpStream,
-    request_line: &str,
+    path: &str,
 ) -> Result<(), Box<dyn Error>> {
-    // Extract the path from the request line
-    // Format: GET /path HTTP/1.1
-    let parts: Vec<&str> = request_line.split_whitespace().collect();
-    let path = parts.get(1).unwrap_or(&"/");
 
-    let (status_line, content) = match *path {
+    // Create a simple router from different paths 
+    let (status_line, content_type, content) = match path {
         "/" => (
             "HTTP/1.1 200 OK",
-            "<html><body><h1>Welcome to Tokio Async Server</h1></body></html>",
+            "text/html",
+            "<html><body>
+                <h1>Welcome to Tokio Async Server</h1>
+                <p>This is a simple async HTTP server built with Tokio.</p>
+                <ul>
+                    <li><a href='/'>Home</a></li>
+                    <li><a href='/about'>About</a></li>
+                    <li><a href='/async'>Async Info</a></li>
+                </ul>
+            </body></html>"
         ),
         "/about" => (
             "HTTP/1.1 200 OK",
-            "<html><body><h1>About Page</h1></body></html>",
+            "text/html",
+            "<html><body>
+                <h1>About This Server</h1>
+                <p>This is a demonstration of asynchronous programming in Rust using Tokio.</p>
+                <p><a href='/'>Back to home</a></p>
+            </body></html>"
+        ),
+        "/async" => (
+            "HTTP/1.1 200 OK",
+            "text/html",
+            "<html><body>
+                <h1>Async Programming</h1>
+                <p>This server uses Tokio's async runtime to handle multiple connections efficiently.</p>
+                <p>Key concepts:</p>
+                <ul>
+                    <li>Non-blocking I/O</li>
+                    <li>Task-based concurrency</li>
+                    <li>Event-driven architecture</li>
+                </ul>
+                <p><a href='/'>Back to home</a></p>
+            </body></html>"
         ),
         _ => (
             "HTTP/1.1 404 NOT FOUND",
-            "<html><body><h1>404: Page not found</h1></body></html>",
+            "text/html",
+            "<html><body>
+                <h1>404: Page not found</h1>
+                <p>The requested resource could not be found.</p>
+                <p><a href='/'>Back to home</a></p>
+            </body></html>"
         ),
     };
 
     // Construct the full response
     let response = format!(
-        "{}\r\nContent-Length: {}\r\nContent-Type: text/html\r\n\r\n{}",
+        "{}\r\nContent-Length: {}\r\nContent-Type: {}\r\nConnection: close\r\n\r\n{}",
         status_line,
         content.len(),
+        content_type,
         content
     );
-
     // Write the response asynchronously
     socket.write_all(response.as_bytes()).await?;
 
