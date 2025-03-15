@@ -86,17 +86,18 @@ async fn handle_get_request(mut socket: TcpStream, path: &str) -> Result<(), Box
      return match path {
          "/" => {
              serve_static_html(
-                 &mut socket,
+                 & mut socket,
                  "<html><body>
                     <h1>Welcome to Tokio Async Server</h1>
                     <p>This is a simple async HTTP server built with Tokio.</p>
                     <ul>
                         <li><a href='/'>Home</a></li>
                         <li><a href='/about'>About</a></li>
-                        <li><a href='/files'>Files</a></li>
+                        <li><a href='/files/index.html'>Static File Example</a></li>
+                        <li><a href='/files/'>Files Directory</a></li>
                     </ul>
                 </body></html>",
-                 "HTTP/1.1 200 OK",
+                 "HTTP/1.1 200 OK"
              ).await
          },
          "/about" => {
@@ -132,7 +133,7 @@ async fn handle_get_request(mut socket: TcpStream, path: &str) -> Result<(), Box
 async fn serve_static_html(socket: &mut TcpStream, content: &str, status: &str) -> Result<(), Box<dyn Error>> {
     let status_line = status.to_string();
     let content_type = "text/html".to_string();
-    
+
     // Construct the full response
     let response = format!(
         "{}\r\nContent-Length: {}\r\nContent-Type: {}\r\nConnection: close\r\n\r\n{}",
@@ -149,9 +150,9 @@ async fn serve_static_html(socket: &mut TcpStream, content: &str, status: &str) 
 
 // Helper function to serve files
 async fn serve_file(socket: & mut TcpStream, path: &str) -> Result<(), Box<dyn Error>> {
-    // Extract the file path from the URL 
+    // Extract the file path from the URL
     let file_path = path.trim_start_matches("/files/");
-    
+
     // For security, ensure the path doesn't contain '..'
     // to prevent directory traversal
     if file_path.contains("..") {
@@ -161,17 +162,17 @@ async fn serve_file(socket: & mut TcpStream, path: &str) -> Result<(), Box<dyn E
             "HTTP/1.1 403 Forbidden"
         ).await?
     }
-    
+
     // Construct the full path (relative to a 'public' directory)
     let file_path = Path::new("public").join(file_path);
-    
+
     // Try to open file asynchronously
     match File::open(&file_path).await {
         Ok(mut file) => {
             // Read the file content
             let mut contents = Vec::new();
             file.read_to_end(&mut contents).await?;
-            
+
             // Determine content type based on file extension
             let content_type = match file_path.extension().and_then(|e| e.to_str()) {
                 Some("html") => "text/html",
@@ -189,7 +190,7 @@ async fn serve_file(socket: & mut TcpStream, path: &str) -> Result<(), Box<dyn E
                 contents.len(),
                 content_type
             );
-            
+
             socket.write_all(response.as_bytes()).await?;
             socket.write_all(&contents).await?;
         },
@@ -202,6 +203,6 @@ async fn serve_file(socket: & mut TcpStream, path: &str) -> Result<(), Box<dyn E
             ).await?
         }
     }
-    
+
     Ok(())
 }
