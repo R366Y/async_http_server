@@ -1,7 +1,8 @@
-use log::debug;
 use std::error::Error;
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::time::timeout;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -16,10 +17,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
         // Spawn a new task for each connection
         tokio::spawn(async move {
-            // Process the connection
-            if let Err(e) = handle_connection(socket).await {
-                eprintln!("Error handling connection: {}", e);
+            // Add a 30 seconds timeout for handling each connection
+            match timeout(Duration::from_secs(30), handle_connection(socket)).await {
+                Ok(result) => {
+                    // Process the connection
+                    if let Err(e) = result {
+                        eprintln!("Error handling connection: {}", e);
+                    }
+                },
+                Err(_) => {
+                    eprintln!("Connection handling time out");
+                }
             }
+            
+
         });
     }
 }
@@ -43,7 +54,7 @@ async fn handle_connection(mut socket: TcpStream) -> Result<(), Box<dyn Error>> 
             let method = request.method.unwrap_or("");
             let path = request.path.unwrap_or("");
 
-            debug!("Received {} request for {}", method, path);
+            println!("Received {} request for {}", method, path);
 
             match method {
                 "GET" => handle_get_request(socket, path).await?,
