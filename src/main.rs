@@ -83,11 +83,11 @@ async fn handle_connection(mut socket: TcpStream) -> Result<(), Box<dyn Error>> 
 
 async fn handle_get_request(mut socket: TcpStream, path: &str) -> Result<(), Box<dyn Error>> {
     // Create a simple router from different paths
-     return match path {
-         "/" => {
-             serve_static_html(
-                 & mut socket,
-                 "<html><body>
+    return match path {
+        "/" => {
+            serve_static_html(
+                &mut socket,
+                "<html><body>
                     <h1>Welcome to Tokio Async Server</h1>
                     <p>This is a simple async HTTP server built with Tokio.</p>
                     <ul>
@@ -97,36 +97,36 @@ async fn handle_get_request(mut socket: TcpStream, path: &str) -> Result<(), Box
                         <li><a href='/files/'>Files Directory</a></li>
                     </ul>
                 </body></html>",
-                 "HTTP/1.1 200 OK"
-             ).await
-         },
-         "/about" => {
-             serve_static_html(
-                 &mut socket,
-                 "<html><body>
+                "HTTP/1.1 200 OK",
+            ).await
+        }
+        "/about" => {
+            serve_static_html(
+                &mut socket,
+                "<html><body>
                     <h1>About This Server</h1>
                     <p>This is a demonstration of asynchronous programming in Rust using Tokio.</p>
                     <p><a href='/'>Back to home</a></p>
                 </body></html>"
-                 , "HTTP/1.1 200 OK",
-             ).await
-         },
-         _ if path.starts_with("/files/") => {
-             // Handle file requests
-             serve_file(&mut socket, path).await
-         },
-         _ => {
-             serve_static_html(
-                 &mut socket,
-                 "<html><body>
+                , "HTTP/1.1 200 OK",
+            ).await
+        }
+        _ if path.starts_with("/files/") => {
+            // Handle file requests
+            serve_file(&mut socket, path).await
+        }
+        _ => {
+            serve_static_html(
+                &mut socket,
+                "<html><body>
                     <h1>404: Page not found</h1>
                     <p>The requested resource could not be found.</p>
                     <p><a href='/'>Back to home</a></p>
                 </body></html>",
-                 "HTTP/1.1 404 NOT FOUND"
-             ).await
-         },
-     };
+                "HTTP/1.1 404 NOT FOUND",
+            ).await
+        }
+    };
 }
 
 // Helper function to serve static HTML content
@@ -149,7 +149,7 @@ async fn serve_static_html(socket: &mut TcpStream, content: &str, status: &str) 
 }
 
 // Helper function to serve files
-async fn serve_file(socket: & mut TcpStream, path: &str) -> Result<(), Box<dyn Error>> {
+async fn serve_file(socket: &mut TcpStream, path: &str) -> Result<(), Box<dyn Error>> {
     // Extract the file path from the URL
     let file_path = path.trim_start_matches("/files/");
 
@@ -159,12 +159,16 @@ async fn serve_file(socket: & mut TcpStream, path: &str) -> Result<(), Box<dyn E
         serve_static_html(
             socket,
             "<html><body><h1>403 Forbidden</h1><p>Access denied.</p></body></html>",
-            "HTTP/1.1 403 Forbidden"
+            "HTTP/1.1 403 Forbidden",
         ).await?
     }
 
     // Construct the full path (relative to a 'public' directory)
     let file_path = Path::new("public").join(file_path);
+    // Check if it's a directory
+    if file_path.is_dir() {
+        return serve_directory_listing(socket, &file_path).await;
+    }
 
     // Try to open file asynchronously
     match File::open(&file_path).await {
@@ -193,16 +197,67 @@ async fn serve_file(socket: & mut TcpStream, path: &str) -> Result<(), Box<dyn E
 
             socket.write_all(response.as_bytes()).await?;
             socket.write_all(&contents).await?;
-        },
+        }
         Err(_) => {
             // File not found
             serve_static_html(
                 socket,
                 "<html><body><h1>404 Not Found</h1><p>The requested file could not be found.</p></body></html>",
-                "HTTP/1.1 404 NOT FOUND"
+                "HTTP/1.1 404 NOT FOUND",
             ).await?
         }
     }
 
     Ok(())
 }
+
+async fn serve_directory_listing(socket: &mut TcpStream, dir_path: &Path) -> Result<(), Box<dyn Error>> {
+    // Read directory entries (this uses the standard library fs, not tokio's fs)
+    // because tokio doesn't have a direct equivalent to read_dir yet
+    let entries = match std::fs::read_dir(dir_path) {
+        Ok(entries) => entries,
+        Err(_) => {
+            return serve_static_html(socket,
+                                     "<html><body><h1>500 Internal Server Error</h1><p>Could not read directory.</p></body></html>",
+                                     "HTTP/1.1 500 Internal Server Error",
+            ).await;
+        }
+    };
+    
+    // Get the relative path for display
+    let rel_path = if dir_path == Path::new("public") {
+        "/files/".to_string()
+    } else {
+        let rel = dir_path.strip_prefix("public").unwrap_or(Path::new(""));
+        format!("/files/{}/", rel.display())
+    };
+
+    // Build HTML for directory listing
+    let mut html = format!("<html><body><h1>Directory: {}</h1><ul>", rel_path);
+
+    // Add parent directory link if not at the root
+    if rel_path != "/files/" {
+        html.push_str("<li><a href=\"../\">..</a> (Parent Directory)</li>");
+    }
+    
+    for entry in entries {
+        if let Ok(entry) = entry {
+            if let Ok(file_type) = entry.file_type() {
+                let name = entry.file_name();
+                let name_str = name.to_string_lossy();
+                
+                if file_type.is_dir() {
+                    html.push_str(&format!("<li><a href=\"{}/\">{}/</a></li>", name_str, name_str));
+                } else {
+                    html.push_str(&format!("<li><a href=\"{}\">{}</a></li>", name_str, name_str));
+                }
+            }
+        }
+    }
+
+    html.push_str("</ul></body></html>");
+
+    // Serve the HTML
+    serve_static_html(socket, &html, "HTTP/1.1 200 OK").await
+}
+
